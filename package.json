@@ -1,0 +1,14 @@
+{
+  "name": "technology-as-seva",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "pnpm --filter contracts build && pnpm --filter api build",
+    "dev": "pnpm --filter api dev",
+    "db:migrate": "pnpm --filter api db:migrate",
+    "db:seed": "pnpm --filter api db:seed"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

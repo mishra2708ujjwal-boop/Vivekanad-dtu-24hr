@@ -1,0 +1,420 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------
+// Identity & Users
+// ----------------------------------------------------
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  systemRole   String   @default("participant") @map("system_role") // participant, moderator, admin
+  status       String   @default("active") // active, suspended, deleted
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  profile               Profile?
+  userSkills            UserSkill[]
+  contributionProfile   ContributionProfile?
+  sankalps              Sankalp[]
+  organizationsCreated  Organization[]        @relation("CreatedOrganizations")
+  organizationsVerified Organization[]        @relation("VerifiedOrganizations")
+  communityNeeds        CommunityNeed[]
+  sevaOpportunities     SevaOpportunity[]
+  participants          Participant[]
+  resourcesOffered      Resource[]
+  circlesCreated        SevaCircle[]
+  circleMemberships     CircleMember[]
+  connectionsRequested  Connection[]          @relation("RequestedConnections")
+  connectionsReceived   Connection[]          @relation("ReceivedConnections")
+  messages              Message[]
+  sevaMoments           SevaMoment[]
+  reflections           Reflection[]
+  aiInsights            AiInsight[]
+  consents              Consent[]
+  reports               Report[]              @relation("ReporterUser")
+  handledReports        Report[]              @relation("HandledReports")
+  notifications         Notification[]
+
+  @@map("users")
+}
+
+model Profile {
+  userId          String   @id @map("user_id")
+  displayName     String   @map("display_name")
+  bio             String?
+  areaLabel       String?  @map("area_label")
+  lat             Float?
+  lng             Float?
+  languages       String[] @default([])
+  availability    Json?    // e.g. {"weekends": true, "evenings": true}
+  visibility      String   @default("members") // private, members, public
+  onboardingDone  Boolean  @default(false) @map("onboarding_done")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+// ----------------------------------------------------
+// Skills & Contribution Profiles
+// ----------------------------------------------------
+model Skill {
+  id       Int         @id @default(autoincrement())
+  name     String      @unique
+  category String
+
+  userSkills UserSkill[]
+
+  @@map("skills")
+}
+
+model UserSkill {
+  userId  String @map("user_id")
+  skillId Int    @map("skill_id")
+  kind    String // contribute, learn
+  level   String? // beginner, practiced, experienced
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([userId, skillId, kind])
+  @@index([skillId, kind])
+  @@map("user_skills")
+}
+
+model ContributionProfile {
+  userId             String   @id @map("user_id")
+  canOfferTime       Boolean  @default(true) @map("can_offer_time")
+  canOfferKnowledge  Boolean  @default(true) @map("can_offer_knowledge")
+  canOfferResources  String[] @default([]) @map("can_offer_resources")
+  notes              String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("contribution_profiles")
+}
+
+model Sankalp {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  intention String   // listening, patience, humility, courage, etc.
+  note      String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reflections Reflection[]
+
+  @@map("sankalps")
+}
+
+// ----------------------------------------------------
+// Organizations, Needs & Seva Opportunities
+// ----------------------------------------------------
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  areaLabel   String?  @map("area_label")
+  verified    Boolean  @default(false)
+  verifiedBy  String?  @map("verified_by")
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  createdUser   User   @relation("CreatedOrganizations", fields: [createdBy], references: [id])
+  verifiedUser  User?  @relation("VerifiedOrganizations", fields: [verifiedBy], references: [id])
+
+  communityNeeds    CommunityNeed[]
+  sevaOpportunities SevaOpportunity[]
+
+  @@map("organizations")
+}
+
+model CommunityNeed {
+  id              String   @id @default(uuid())
+  postedBy        String   @map("posted_by")
+  organizationId  String?  @map("organization_id")
+  rawText         String   @map("raw_text")
+  title           String
+  structured      Json     // required contributions, sessions, potential learning
+  empowermentNote String   @map("empowerment_note")
+  category        String?
+  areaLabel       String?  @map("area_label")
+  lat             Float?
+  lng             Float?
+  status          String   @default("open") // draft, open, in_progress, fulfilled, closed, removed
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  poster       User              @relation(fields: [postedBy], references: [id], onDelete: Cascade)
+  organization Organization?     @relation(fields: [organizationId], references: [id])
+  sevaCreated  SevaOpportunity[]
+
+  @@index([status, category])
+  @@map("community_needs")
+}
+
+model SevaOpportunity {
+  id                    String   @id @default(uuid())
+  createdBy             String   @map("created_by")
+  needId                String?  @map("need_id")
+  organizationId        String?  @map("organization_id")
+  title                 String
+  purpose               String
+  description           String?
+  category              String?
+  isTech                Boolean  @default(false) @map("is_tech")
+  requiredContributions Json     @map("required_contributions") // [{skill_id, count, description}]
+  potentialLearning     String[] @default([]) @map("potential_learning")
+  resourcesNeeded       String[] @default([]) @map("resources_needed")
+  capacity              Int?
+  safetyInfo            String?  @map("safety_info")
+  empowermentNote       String   @map("empowerment_note")
+  status                String   @default("open") // draft, open, full, completed, cancelled, removed
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  creator      User           @relation(fields: [createdBy], references: [id])
+  need         CommunityNeed? @relation(fields: [needId], references: [id])
+  organization Organization?  @relation(fields: [organizationId], references: [id])
+
+  events       SevaEvent[]
+  participants Participant[]
+  resources    Resource[]
+  circles      SevaCircle[]
+
+  @@index([status, category])
+  @@map("seva_opportunities")
+}
+
+model SevaEvent {
+  id             String    @id @default(uuid())
+  opportunityId  String    @map("opportunity_id")
+  startsAt       DateTime  @map("starts_at")
+  endsAt         DateTime? @map("ends_at")
+  placeLabel     String?   @map("place_label")
+  addressPrivate String?   @map("address_private")
+  lat            Float?
+  lng            Float?
+  mode           String    @default("in_person") // in_person, online, hybrid
+  completedAt    DateTime? @map("completed_at")
+
+  opportunity SevaOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@map("seva_events")
+}
+
+model Participant {
+  id             String   @id @default(uuid())
+  opportunityId  String   @map("opportunity_id")
+  userId         String   @map("user_id")
+  stance         String   @default("both") // contributing, learning, both
+  contributingAs String?  @map("contributing_as")
+  status         String   @default("joined") // joined, left, completed
+  contactConsent Boolean  @default(false) @map("contact_consent")
+  joinedAt       DateTime @default(now()) @map("joined_at")
+
+  opportunity SevaOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, userId])
+  @@map("participants")
+}
+
+model Resource {
+  id            String  @id @default(uuid())
+  opportunityId String  @map("opportunity_id")
+  offeredBy     String? @map("offered_by")
+  label         String
+  kind          String?
+  note          String?
+
+  opportunity SevaOpportunity @relation(fields: [opportunityId], references: [id])
+  offeredUser User?           @relation(fields: [offeredBy], references: [id])
+
+  @@map("resources")
+}
+
+// ----------------------------------------------------
+// Community Circles & Messaging
+// ----------------------------------------------------
+model SevaCircle {
+  id                   String   @id @default(uuid())
+  name                 String
+  purpose              String?
+  originOpportunityId  String?  @map("origin_opportunity_id")
+  createdBy            String   @map("created_by")
+  status               String   @default("active") // active, paused, closed
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  originOpportunity SevaOpportunity? @relation(fields: [originOpportunityId], references: [id])
+  creator           User             @relation(fields: [createdBy], references: [id])
+
+  members  CircleMember[]
+  messages Message[]
+
+  @@map("seva_circles")
+}
+
+model CircleMember {
+  circleId String   @map("circle_id")
+  userId   String   @map("user_id")
+  joinedAt DateTime @default(now()) @map("joined_at")
+  muted    Boolean  @default(false)
+
+  circle SevaCircle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([circleId, userId])
+  @@map("circle_members")
+}
+
+model Connection {
+  id          String   @id @default(uuid())
+  requesterId String   @map("requester_id")
+  addresseeId String   @map("addressee_id")
+  status      String   @default("pending") // pending, accepted, declined, blocked
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  requester User      @relation("RequestedConnections", fields: [requesterId], references: [id])
+  addressee User      @relation("ReceivedConnections", fields: [addresseeId], references: [id])
+  messages  Message[]
+
+  @@map("connections")
+}
+
+model Message {
+  id           String   @id @default(uuid())
+  circleId     String?  @map("circle_id")
+  connectionId String?  @map("connection_id")
+  senderId     String   @map("sender_id")
+  kind         String   @default("message") // message, announcement, resource
+  body         String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  circle     SevaCircle? @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  connection Connection? @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  sender     User        @relation(fields: [senderId], references: [id])
+
+  @@index([circleId, createdAt(sort: Desc)])
+  @@map("messages")
+}
+
+// ----------------------------------------------------
+// Reflection & AI Growth
+// ----------------------------------------------------
+model SevaMoment {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  opportunityId  String?  @map("opportunity_id")
+  contributed    String
+  learned        String
+  taughtByOthers String?  @map("taught_by_others")
+  visibility     String   @default("private") // private, circle
+  isSilent       Boolean  @default(false) @map("is_silent")
+  occurredOn     DateTime @map("occurred_on")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  reflections Reflection[]
+  fromLinks   SevaChainLink[] @relation("FromMoment")
+  toLinks     SevaChainLink[] @relation("ToMoment")
+
+  @@map("seva_moments")
+}
+
+model Reflection {
+  id               String   @id @default(uuid())
+  momentId         String   @map("moment_id")
+  userId           String   @map("user_id")
+  surprise         String?
+  expectationMatch String?  @map("expectation_match")
+  doDifferently    String?  @map("do_differently")
+  sankalpId        String?  @map("sankalp_id")
+  bodyEncrypted    String   @map("body_encrypted") // AES-256 encrypted reflection content
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  moment  SevaMoment @relation(fields: [momentId], references: [id], onDelete: Cascade)
+  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sankalp Sankalp?   @relation(fields: [sankalpId], references: [id])
+
+  @@map("reflections")
+}
+
+model AiInsight {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  kind         String?  // summary, mirror, need_structuring
+  content      String
+  sourceIds    String[] @map("source_ids")
+  userFeedback String?  @map("user_feedback") // feels_true, not_quite
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_insights")
+}
+
+model SevaChainLink {
+  id              String  @id @default(uuid())
+  fromMomentId    String  @map("from_moment_id")
+  toMomentId      String  @map("to_moment_id")
+  relation        String  @default("learning_led_to_contribution")
+  confirmedByBoth Boolean @default(false) @map("confirmed_by_both")
+
+  fromMoment SevaMoment @relation("FromMoment", fields: [fromMomentId], references: [id])
+  toMoment   SevaMoment @relation("ToMoment", fields: [toMomentId], references: [id])
+
+  @@map("seva_chain_links")
+}
+
+// ----------------------------------------------------
+// Safety & Administration
+// ----------------------------------------------------
+model Consent {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  scope     String   // share_contact_circle, profile_public, etc.
+  granted   Boolean
+  contextId String?  @map("context_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("consents")
+}
+
+model Report {
+  id         String   @id @default(uuid())
+  reporterId String   @map("reporter_id")
+  targetType String   @map("target_type") // user, seva, need, message, circle
+  targetId   String   @map("target_id")
+  reason     String
+  details    String?
+  status     String   @default("open") // open, reviewing, actioned, dismissed
+  handledBy  String?  @map("handled_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  reporter User  @relation("ReporterUser", fields: [reporterId], references: [id])
+  handler  User? @relation("HandledReports", fields: [handledBy], references: [id])
+
+  @@map("reports")
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  type      String
+  payload   Json?
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
